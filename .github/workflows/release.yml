@@ -1,0 +1,110 @@
+name: Build and Release Site
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v[0-9][0-9][0-9][0-9].[0-9]*.[0-9]*-[0-9]*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate date-based version tag
+        id: version
+        run: |
+          YEAR=$(date -u +'%Y')
+          MONTH=$(date -u +'%-m')
+          DAY=$(date -u +'%-d')
+          DATE="${YEAR}.${MONTH}.${DAY}"
+
+          # Find the next available build counter for today
+          COUNTER=1
+          while git tag --list "v${DATE}-${COUNTER}" | grep -q .; do
+            COUNTER=$((COUNTER + 1))
+          done
+
+          TAG="v${DATE}-${COUNTER}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Generated tag: ${TAG}"
+        if: github.event_name == 'workflow_dispatch'
+
+      - name: Use pushed tag as version
+        id: pushed_tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Using tag: ${TAG}"
+        if: github.event_name == 'push'
+
+      - name: Resolve final tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ steps.version.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ steps.pushed_tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build site
+        run: npm run build
+
+      - name: Package site artifacts
+        run: |
+          tar -czf "site.tar.gz" -C dist .
+          cd dist && zip -r "../site.zip" . && cd ..
+
+      - name: Create and push tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Site Build ${{ steps.tag.outputs.tag }}"
+          body: |
+            Automated site build for ${{ steps.tag.outputs.tag }}.
+
+            ## Download
+
+            Download the built site as a tarball or zip archive and extract it to serve with any static file server.
+
+            **Tarball:**
+            ```sh
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/site.tar.gz -o site.tar.gz
+            tar -xzf site.tar.gz -C /path/to/serve
+            ```
+
+            **Zip:**
+            ```sh
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/site.zip -o site.zip
+            unzip site.zip -d /path/to/serve
+            ```
+          files: |
+            site.tar.gz
+            site.zip
+          make_latest: true
