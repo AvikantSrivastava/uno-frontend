@@ -7,8 +7,8 @@
 </script>
 
 <Router basepath="/uno">
-  <Route path="create-room" component={CreateRoom} />
-  <Route path="join-room" component={JoinRoom} />
-  <Route path="game" component={Game} />
+  <Route path="/create-room" component={CreateRoom} />
+  <Route path="/join-room" component={JoinRoom} />
+  <Route path="/game" component={Game} />
   <Route path="/" component={StartPage} />
 </Router>
