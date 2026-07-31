@@ -54,7 +54,7 @@
     // Check if we have a connection
     if (!$websocket && !$isConnected) {
       // No connection, redirect to home
-      navigate('/');
+      navigate('/uno');
       return;
     }
 

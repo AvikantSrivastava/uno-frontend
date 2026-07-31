@@ -50,7 +50,7 @@
 
     try {
       await websocketStore.connect(websocketUrl);
-      navigate('/game');
+      navigate('/uno/game');
     } catch (err: any) {
       reconnectError = err?.message || 'Failed to reconnect';
       reconnecting = false;
@@ -91,10 +91,10 @@
     <div class="divider">or</div>
   {/if}
 
-  <Link class="nes-btn is-primary button" to="/create-room" style="margin-bottom: 20px;">
+  <Link class="nes-btn is-primary button" to="/uno/create-room" style="margin-bottom: 20px;">
     Create Room
   </Link>
-  <Link class="nes-btn is-success button" to="/join-room">
+  <Link class="nes-btn is-success button" to="/uno/join-room">
     Join Room
   </Link>
 </div>
