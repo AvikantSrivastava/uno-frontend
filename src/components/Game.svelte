@@ -1,92 +1,231 @@
 <!-- Game.svelte -->
 
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
+  import { navigate } from "svelte-routing";
   import "nes.css/css/nes.min.css";
 
-  import { websocket } from "../stores/websocketStore";
-  // import {ConnectionDTO, InfoDTO } from "../models"
-  let gameState: any = null;
-  let connectionDTO: any = null;
-  let infoDTO: any = null;
+  import {
+    websocket,
+    websocketStore,
+    connectionStatus,
+    connectionError,
+    isConnected
+  } from "../stores/websocketStore";
+  import ErrorNotification from "./ErrorNotification.svelte";
+  import type { Card, Player, Game, Room, GameState, ConnectionDTO, InfoDTO } from "../models";
+
+  // Game state
+  let gameState: { player: Player; room: Room; game: Game } | null = null;
+  let connectionDTO: ConnectionDTO['obj'] | null = null;
+  let infoDTO: InfoDTO['obj'] | null = null;
+  let connectedPlayers: number = 0;
+
+  // Heartbeat
+  let pingInterval: ReturnType<typeof setInterval> | null = null;
+  let lastPongTime: number = Date.now();
+  const PING_INTERVAL_MS = 3000;
+  const PONG_TIMEOUT_MS = 10000;
+
+  // Toast notifications
+  type Toast = { id: number; message: string; type: 'info' | 'error' | 'success' };
+  let toasts: Toast[] = [];
+  let toastId = 0;
+
+  function addToast(message: string, type: 'info' | 'error' | 'success' = 'info') {
+    const id = ++toastId;
+    toasts = [...toasts, { id, message, type }];
+    setTimeout(() => {
+      toasts = toasts.filter(t => t.id !== id);
+    }, 5000);
+  }
+
+  function dismissToast(id: number) {
+    toasts = toasts.filter(t => t.id !== id);
+  }
+
+  // Error state
+  let parseError: string | null = null;
+
+  // Unsubscribe function
+  let unsubscribe: (() => void) | null = null;
 
   onMount(() => {
-    const unsubscribe = websocket.subscribe((socket) => {
+    // Check if we have a connection
+    if (!$websocket && !$isConnected) {
+      // No connection, redirect to home
+      navigate('/');
+      return;
+    }
+
+    unsubscribe = websocket.subscribe((socket) => {
       if (socket) {
         socket.onmessage = (event) => {
-          const incomingData = JSON.parse(event.data);
+          try {
+            const incomingData = JSON.parse(event.data);
+            parseError = null;
 
-          switch (incomingData.type) {
-            case "connection":
-              connectionDTO = incomingData.obj;
-              console.log("Connection", connectionDTO);
-              break;
-            case "info":
-              infoDTO = incomingData.obj;
-              console.log("INFO", infoDTO);
-              break;
-            case "sync":
-              gameState = incomingData.obj;
-              break;
+            switch (incomingData.type) {
+              case "connection":
+                connectionDTO = incomingData.obj;
+                console.log("Connection", connectionDTO);
+                // Set initial connected players count
+                connectedPlayers = connectionDTO?.players?.length || 0;
+                // Save session for reconnection
+                if (connectionDTO?.player_name && connectionDTO?.room_id) {
+                  localStorage.setItem('uno_session', JSON.stringify({
+                    playerName: connectionDTO.player_name,
+                    roomId: connectionDTO.room_id,
+                    timestamp: Date.now()
+                  }));
+                }
+                break;
+              case "pong":
+                lastPongTime = Date.now();
+                connectedPlayers = incomingData.obj?.connected_players || connectedPlayers;
+                break;
+              case "info":
+                infoDTO = incomingData.obj;
+                if (infoDTO?.Message) {
+                  addToast(infoDTO.Message, 'info');
+                }
+                console.log("INFO", infoDTO);
+                break;
+              case "sync":
+                gameState = incomingData.obj;
+                break;
+              case "error":
+                // Handle server-sent errors
+                const errorMsg = incomingData.obj?.message || incomingData.obj?.Message || "Server error";
+                addToast(errorMsg, 'error');
+                break;
+              default:
+                console.warn("Unknown message type:", incomingData.type);
+            }
+          } catch (err) {
+            console.error("Failed to parse message:", err);
+            parseError = "Failed to parse server message";
           }
         };
       }
     });
 
-    return unsubscribe;
+    // Subscribe to connection status for handling disconnects
+    const statusUnsubscribe = connectionStatus.subscribe((status) => {
+      if (status === 'disconnected' || status === 'error') {
+        addToast("Connection lost. Attempting to reconnect...", 'error');
+      } else if (status === 'connected') {
+        addToast("Connected!", 'success');
+      }
+    });
+
+    // Listen for browser online/offline events
+    const handleOffline = () => {
+      addToast("You're offline. Check your internet connection.", 'error');
+    };
+    const handleOnline = () => {
+      addToast("Back online! Reconnecting...", 'info');
+      websocketStore.attemptReconnect();
+    };
+
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+
+    // Start heartbeat ping
+    pingInterval = setInterval(() => {
+      if ($isConnected) {
+        websocketStore.sendMessage({ type: "PING", obj: {} });
+      }
+    }, PING_INTERVAL_MS);
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+      statusUnsubscribe();
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+      if (pingInterval) clearInterval(pingInterval);
+    };
+  });
+
+  onDestroy(() => {
+    // Clean up WebSocket and heartbeat when leaving the game
+    if (pingInterval) clearInterval(pingInterval);
+    websocketStore.disconnect();
   });
 
   function drawCard() {
     console.log("Draw card button clicked");
 
-    websocket.update((socket) => {
-      if (socket) {
-        socket.send(
-          JSON.stringify({
-            type: "DRAW_CARD",
-            obj: {},
-          })
-        );
-      }
-      return socket;
+    const success = websocketStore.sendMessage({
+      type: "DRAW_CARD",
+      obj: {},
     });
+
+    if (!success) {
+      addToast("Failed to draw card - not connected", 'error');
+    }
   }
 
-  function playCard(card, index, color = null) {
+  function playCard(card: Card, index: number, color: string | null = null) {
     console.log("Play card button clicked", card, color);
 
-    websocket.update((socket) => {
-      if (socket) {
-        socket.send(
-          JSON.stringify({
-            type: "PLAY_CARD",
-            obj: {
-              card_index: index,
-              new_color: color,
-            },
-          }),
-        );
-      }
-      return socket;
+    const success = websocketStore.sendMessage({
+      type: "PLAY_CARD",
+      obj: {
+        card_index: index,
+        new_color: color,
+      },
     });
+
+    if (!success) {
+      addToast("Failed to play card - not connected", 'error');
+    }
   }
 
-  function getCardImage(card: any) {
-    if (card.Rank == "wild" || card.Rank == "draw_4") {
+  function getCardImage(card: Card): string {
+    if (card.Rank === "wild" || card.Rank === "draw_4") {
       return `assets/cards/${card.Rank}.svg`;
     } else {
       return `assets/cards/${card.Color}-${card.Rank}.svg`;
     }
   }
 
-  function selectColor(card, index, color) {
+  function selectColor(card: Card, index: number, color: string) {
     console.log("Color selected:", color);
     playCard(card, index, color);
   }
+
+  function handleLeaveGame() {
+    // Clear saved session when player intentionally leaves
+    localStorage.removeItem('uno_session');
+    websocketStore.disconnect();
+    navigate('/');
+  }
+
+  function handleReconnect() {
+    websocketStore.attemptReconnect();
+  }
+
+  // Check if it's the current player's turn
+  $: isMyTurn = gameState?.game?.turn === gameState?.player?.Name;
+
+  // Rotating greeting (set once on mount)
+  const greetings = ['Hi', 'Hey', 'Hello', 'Howdy'];
+  const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+  $: playerName = connectionDTO?.player_name || gameState?.player?.Name || 'Player';
+  $: activePlayersCount = connectedPlayers || gameState?.room?.players?.length || connectionDTO?.players?.length || 0;
 </script>
 
-<div class="title-container">
-  <h1>UNO</h1>
+<ErrorNotification />
+
+<!-- Toast notifications -->
+<div class="toast-container">
+  {#each toasts as toast (toast.id)}
+    <div class="toast toast-{toast.type}" on:click={() => dismissToast(toast.id)}>
+      <span class="toast-message">{toast.message}</span>
+      <button class="toast-close" on:click|stopPropagation={() => dismissToast(toast.id)}>×</button>
+    </div>
+  {/each}
 </div>
 
 <div class="container">
