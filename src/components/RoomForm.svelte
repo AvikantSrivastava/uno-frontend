@@ -1,7 +1,16 @@
 <script lang="ts">
-  import { connectWebSocket } from '../stores/websocketStore';
+  import { websocketStore, connectionStatus, connectionError, isConnecting } from '../stores/websocketStore';
   import { navigate } from 'svelte-routing';
-  const WEBSOCKET_BASE_URL = `wss://${window.location.hostname}/api`;
+  import ErrorNotification from './ErrorNotification.svelte';
+
+  const WEBSOCKET_BASE_URL = `ws://localhost:8000`;
+
+  // Validation constants (matching backend)
+  const MIN_PLAYER_NAME_LENGTH = 1;
+  const MAX_PLAYER_NAME_LENGTH = 32;
+  const MIN_PLAYERS = 2;
+  const MAX_PLAYERS = 10;
+  const PLAYER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 
   export let title: string;
   export let endpoint: string;
