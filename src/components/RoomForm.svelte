@@ -109,7 +109,7 @@
     try {
       await websocketStore.connect(websocketUrl);
       // Connection successful, navigate to game
-      navigate('/game');
+      navigate('/uno/game');
     } catch (err) {
       // Error is already stored in websocketStore
       console.error('Connection failed:', err);
