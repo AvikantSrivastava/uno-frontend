@@ -5,7 +5,7 @@
   import { onMount } from 'svelte';
   import { websocketStore, isConnecting, connectionStatus } from '../stores/websocketStore';
 
-  const WEBSOCKET_BASE_URL = `ws://localhost:8000`;
+  const WEBSOCKET_BASE_URL = `wss://${window.location.hostname}/api`;
 
   interface SavedSession {
     playerName: string;

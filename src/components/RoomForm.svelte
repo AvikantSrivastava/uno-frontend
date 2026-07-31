@@ -3,7 +3,7 @@
   import { navigate } from 'svelte-routing';
   import ErrorNotification from './ErrorNotification.svelte';
 
-  const WEBSOCKET_BASE_URL = `ws://localhost:8000`;
+  const WEBSOCKET_BASE_URL = `wss://${window.location.hostname}/api`;
 
   // Validation constants (matching backend)
   const MIN_PLAYER_NAME_LENGTH = 1;
