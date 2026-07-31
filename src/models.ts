@@ -17,10 +17,20 @@ export type Game = {
   reverse: boolean;
 };
 
+// Card status representing how many cards a player has
+export type CardStatus = 'too_many' | 'many' | 'few' | 'very_few' | 'one';
+
+// Player info visible to other players
+export type PlayerInfo = {
+  name: string;
+  card_status: CardStatus;
+  is_uno: boolean;
+};
+
 export type Room = {
   id: number;
   max_players: number;
-  players: string[];
+  players: PlayerInfo[];
 };
 
 export type GameState = {
@@ -36,7 +46,7 @@ export type ConnectionDTO = {
     player_name: string;
     room_id: number;
     max_players: number;
-    players: string[];
+    players: PlayerInfo[];
   };
 };
 
@@ -50,5 +60,12 @@ export type ErrorDTO = {
   obj: {
     message: string;
     code?: string;
+  };
+};
+
+export type WinnerDTO = {
+  obj: {
+    winner_name: string;
+    is_winner: boolean;
   };
 };

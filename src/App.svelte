@@ -6,9 +6,9 @@
   import StartPage from './components/StartPage.svelte';
 </script>
 
-<Router basepath="/uno">
-  <Route path="create-room" component={CreateRoom} />
-  <Route path="join-room" component={JoinRoom} />
-  <Route path="game" component={Game} />
+<Router>
+  <Route path="/create-room" component={CreateRoom} />
+  <Route path="/join-room" component={JoinRoom} />
+  <Route path="/game" component={Game} />
   <Route path="/" component={StartPage} />
 </Router>
